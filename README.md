@@ -1,4 +1,4 @@
-# ChatGPT Timestamp Injector
+# Timestamp Injector for ChatGPT
 
 A browser extension that automatically injects customizable timestamps into ChatGPT conversations. It displays the exact time each message was sent or received, directly below the message bubble.
 
@@ -11,6 +11,8 @@ A browser extension that automatically injects customizable timestamps into Chat
   - **Format**: Choose how the date and time are displayed (e.g., full date and time, short date, or just time).
 - **Seamless Integration**: Matches the native look and feel of ChatGPT.
 - **Cross-Browser Support**: Works on Chrome, Edge, and Firefox.
+
+*Note for Firefox users: Due to a long-standing Firefox extension bug regarding native color pickers in popups, the custom color picker is disabled on Firefox. Only the preset colors are available.*
 
 ## Installation
 

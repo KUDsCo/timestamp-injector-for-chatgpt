@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT Timestamp Injector",
+  "name": "Timestamp Injector for ChatGPT",
   "version": "1.0.0",
   "description": "Displays customizable timestamps at the end of each ChatGPT message.",
   "author": "KUDs",
