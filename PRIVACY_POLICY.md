@@ -2,11 +2,11 @@
 
 **Effective Date:** 2026-05-12
 
-This Privacy Policy explains how the "ChatGPT Timestamp Injector" browser extension handles your information.
+This Privacy Policy explains how the "Timestamp Injector for ChatGPT" browser extension handles your information.
 
 ## Data Collection and Usage
 
-The "ChatGPT Timestamp Injector" extension operates entirely locally within your browser. 
+The "Timestamp Injector for ChatGPT" extension operates entirely locally within your browser. 
 
 1.  **No External Data Collection:** The extension does not collect, transmit, distribute, or sell your personal data or your ChatGPT conversation history to the developer or any third parties.
 2.  **Local Processing:** To function, the extension interacts with the ChatGPT webpage you are actively viewing. It reads the local conversation data provided by the ChatGPT interface solely for the purpose of extracting the creation time of each message and displaying it on your screen.

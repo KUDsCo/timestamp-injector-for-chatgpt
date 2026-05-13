@@ -73,8 +73,8 @@ async function build() {
   await zipDirectory(extensionDir, path.join(distDir, `firefox-v${version}.zip`), (manifestObj) => {
     manifestObj.browser_specific_settings = {
       gecko: {
-        // Replace this with your actual Firefox add-on ID once generated/assigned by AMO.
-        // Or keep a domain-based generic ID if you haven't uploaded yet.
+        // This ID is used for the initial AMO (Add-ons Mozilla) upload.
+        // AMO will register this ID or assign a new UUID after the first submission.
         id: "timestamp-injector-for-chatgpt@kuds.win",
         strict_min_version: "109.0",
         data_collection_permissions: {
