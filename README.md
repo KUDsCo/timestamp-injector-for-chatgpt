@@ -16,7 +16,13 @@ A browser extension that automatically injects customizable timestamps into Chat
 
 ## Installation
 
-### For Developers (Unpacked)
+### From the store
+
+- **Chrome**: [Chrome Web Store](https://chromewebstore.google.com/detail/timestamp-injector-for-ch/bncpfipegbkcpaendbpopechcolaofch)
+- **Firefox**: [Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/addon/timestamp-injector-for-chatgpt/)
+- **Edge**: [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/timestamp-injector-for-ch/lamgpjbmjhdgkbaodahkmggfbgigmbmk)
+
+### From source (unpacked)
 
 1. Clone or download this repository.
 2. Open your browser's extension management page (e.g., `chrome://extensions/` or `about:debugging`).
