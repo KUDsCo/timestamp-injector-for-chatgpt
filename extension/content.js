@@ -1,16 +1,3 @@
-// content.js
-// Content script to bridge extension storage, API requests, and the injected script
-
-const injectScript = (filePath) => {
-  const script = document.createElement('script');
-  script.src = chrome.runtime.getURL(filePath);
-  script.type = 'text/javascript';
-  script.onload = () => {
-    script.remove();
-  };
-  (document.head || document.documentElement).appendChild(script);
-};
-
 // Default settings
 let currentSettings = {
     enabled: true,
@@ -39,8 +26,6 @@ const ensureSettingsApplied = () => {
 chrome.storage.sync.get(currentSettings, (items) => {
     currentSettings = items;
     ensureSettingsApplied();
-    // Inject the script into the page context
-    injectScript('inject.js');
 });
 
 // Listen for storage changes

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Timestamp Injector for ChatGPT",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Displays customizable timestamps at the end of each ChatGPT message.",
   "author": "KUDs",
   "icons": {
@@ -20,17 +20,17 @@
       "js": [
         "content.js"
       ],
-      "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
+      "run_at": "document_start"
+    },
     {
-      "resources": [
-        "inject.js"
-      ],
       "matches": [
         "https://chatgpt.com/*"
-      ]
+      ],
+      "js": [
+        "inject.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "action": {
@@ -40,5 +40,6 @@
       "48": "icon_48.png",
       "128": "icon_128.png"
     }
-  }
+  },
+  "minimum_chrome_version": "111"
 }
