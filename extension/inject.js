@@ -21,8 +21,26 @@
     }
 
     // Observe the same history response that ChatGPT requests, including later pages.
+    const parse = JSON.parse;
+    function readOutgoing(input, init) {
+        const method = init?.method || input?.method;
+        if (method?.toUpperCase() !== 'POST') return;
+        const url = new URL(input?.url || input, location.href);
+        if (url.origin !== location.origin ||
+            !/^\/(?:backend-api|backend-anon)\/(?:f\/)?conversation\/?$/.test(url.pathname)) return;
+
+        if (typeof init?.body === 'string') {
+            readHistory(parse(init.body));
+        } else if (!init?.body && input instanceof Request &&
+                   input.headers.get('content-type')?.includes('application/json')) {
+            input.clone().json().then(readHistory).catch(() => {});
+        }
+    }
+
     const fetchPage = window.fetch;
     window.fetch = function (...args) {
+        // Some new chats are rendered entirely from a POST and streamed reply.
+        try { readOutgoing(args[0], args[1]); } catch { /* Leave the site's request untouched. */ }
         const request = fetchPage.apply(this, args);
         request.then(response => {
             if (!response.ok || !response.url) return;
@@ -35,14 +53,15 @@
     };
 
     // Live stream events and initial client data can arrive before history is requested.
-    const parse = JSON.parse;
     JSON.parse = function (...args) {
         const data = parse.apply(this, args);
         if (!data || typeof data !== 'object' || typeof args[1] === 'function') return data;
-        if (data.conversation_id || data.mapping) readHistory(data);
-        remember(data.message);
-        remember(data.v?.message);
-        if (data.p === '/message') remember(data.v);
+        try {
+            if (data.conversation_id || data.mapping) readHistory(data);
+            remember(data.message);
+            remember(data.v?.message);
+            if (data.p === '/message') remember(data.v);
+        } catch { /* Extension processing must never change the parser result. */ }
         return data;
     };
 
@@ -83,6 +102,7 @@
         return settings.dateFormat.replace(/YYYY|MM|DD|HH|mm|ss/g, key => parts[key]);
     }
 
+    const rendered = new WeakMap();
     function render() {
         const stale = new Set(document.querySelectorAll('time.chatgpt-timestamp'));
         const seen = new Set();
@@ -99,8 +119,11 @@
                 (unit?.dataset.chatgptSearchMessageIds || '').split(/\s+/).filter(Boolean);
             const record = resolveMessage(element, role, ids);
             if (!record || !settings.enabled) continue;
-            const date = new Date(record.seconds * 1000);
             const time = host.querySelector(':scope > time.chatgpt-timestamp') || document.createElement('time');
+            stale.delete(time);
+            const previous = rendered.get(time);
+            if (previous?.record === record && previous.settings === settings && previous.role === role) continue;
+            const date = new Date(record.seconds * 1000);
             const label = format(date);
             if (time.textContent !== label) time.textContent = label;
             time.className = 'chatgpt-timestamp w-full';
@@ -109,7 +132,7 @@
             Object.assign(time.style, {display: 'block', color: settings.textColor, fontSize: settings.fontSize,
                 fontStyle: 'italic', opacity: '0.8', textAlign: role === 'user' ? 'right' : 'left', marginTop: '4px'});
             if (!time.parentNode) host.appendChild(time);
-            stale.delete(time);
+            rendered.set(time, {record, role, settings});
         }
         for (const time of stale) time.remove();
     }
