@@ -1,4 +1,8 @@
-# Timestamp Injector for ChatGPT
+# Timestamp Injector for ChatGPT — Deprecated
+
+この拡張機能はメンテナンスを終了しました。ChatGPT の Web 版では、過去の会話を開くと会話の区切りに日時が表示されます。個別の回答の日時は、その回答の下にある「…」（More actions）から確認できます。確認した公式表示の精度は分単位です。
+
+拡張機能の最終版は 1.0.0 です。現在の Web 版では発言を特定する画面要素が変わったため、この版のタイムスタンプが表示されない場合があります。以下は最終版の機能と配布先の記録です。
 
 A browser extension that automatically injects customizable timestamps into ChatGPT conversations. It displays the exact time each message was sent or received, directly below the message bubble.
 
