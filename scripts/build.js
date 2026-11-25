@@ -71,12 +71,13 @@ async function build() {
   // 2. Build Firefox (modify manifest to add browser_specific_settings)
   console.log('Building for Firefox...');
   await zipDirectory(extensionDir, path.join(distDir, `firefox-v${version}.zip`), (manifestObj) => {
+    delete manifestObj.minimum_chrome_version;
     manifestObj.browser_specific_settings = {
       gecko: {
         // This ID is used for the initial AMO (Add-ons Mozilla) upload.
         // AMO will register this ID or assign a new UUID after the first submission.
         id: "timestamp-injector-for-chatgpt@kuds.win",
-        strict_min_version: "109.0",
+        strict_min_version: "128.0",
         data_collection_permissions: {
           required: ["none"]
         }

@@ -1,251 +1,153 @@
-(function() {
+(() => {
     'use strict';
 
-    let settings = {
-        enabled: true,
-        textColor: '#888888',
-        fontSize: '0.875rem',
-        dateFormat: 'YYYY/MM/DD HH:mm:ss'
+    // These are in-memory records for this tab. Keep only the role and creation time.
+    const times = new Map();
+    const roles = new Set(['user', 'assistant']);
+    function remember(message) {
+        if (!message || !roles.has(message.author?.role) || typeof message.id !== 'string') return;
+        const seconds = message.create_time;
+        if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 253402300799) return;
+        if (times.get(message.id)?.seconds === seconds) return;
+        times.set(message.id, {role: message.author.role, seconds});
+        schedule();
+    }
+
+    function readHistory(data) {
+        if (Array.isArray(data?.messages)) data.messages.forEach(remember);
+        if (data?.mapping) {
+            for (const node of Object.values(data.mapping)) remember(node?.message);
+        }
+    }
+
+    // Observe the same history response that ChatGPT requests, including later pages.
+    const parse = JSON.parse;
+    function readOutgoing(input, init) {
+        const method = init?.method || input?.method;
+        if (method?.toUpperCase() !== 'POST') return;
+        const url = new URL(input?.url || input, location.href);
+        if (url.origin !== location.origin ||
+            !/^\/(?:backend-api|backend-anon)\/(?:f\/)?conversation\/?$/.test(url.pathname)) return;
+
+        if (typeof init?.body === 'string') {
+            readHistory(parse(init.body));
+        } else if (!init?.body && input instanceof Request &&
+                   input.headers.get('content-type')?.includes('application/json')) {
+            input.clone().json().then(readHistory).catch(() => {});
+        }
+    }
+
+    const fetchPage = window.fetch;
+    window.fetch = function (...args) {
+        // Some new chats are rendered entirely from a POST and streamed reply.
+        try { readOutgoing(args[0], args[1]); } catch { /* Leave the site's request untouched. */ }
+        const request = fetchPage.apply(this, args);
+        request.then(response => {
+            if (!response.ok || !response.url) return;
+            const url = new URL(response.url);
+            if (url.origin !== location.origin ||
+                !/^\/(?:backend-api|backend-anon)\/conversations?\/[\da-f-]+(?:\/messages)?\/?$/i.test(url.pathname)) return;
+            return response.clone().json().then(readHistory);
+        }).catch(() => {});
+        return request;
     };
 
-    // Load settings from DOM attribute
-    function loadSettingsFromDOM() {
-        if (!document.body) return false;
-        const attr = document.body.getAttribute('data-chatgpt-timestamp-settings');
-        if (!attr) return false;
-        
+    // Live stream events and initial client data can arrive before history is requested.
+    JSON.parse = function (...args) {
+        const data = parse.apply(this, args);
+        if (!data || typeof data !== 'object' || typeof args[1] === 'function') return data;
         try {
-            const parsed = JSON.parse(attr);
-            // Check if settings actually changed
-            const hasChanged = JSON.stringify(settings) !== JSON.stringify(parsed);
-            if (hasChanged) {
-                settings = parsed;
-                return true;
+            if (data.conversation_id || data.mapping) readHistory(data);
+            remember(data.message);
+            remember(data.v?.message);
+            if (data.p === '/message') remember(data.v);
+        } catch { /* Extension processing must never change the parser result. */ }
+        return data;
+    };
+
+    function resolveMessage(element, role, ids) {
+        const allowed = new Set(ids);
+        const key = Object.keys(element).find(name => name.startsWith('__reactFiber$'));
+        for (let f = element[key], i = 0; f && i < 32; f = f.return, i++) {
+            const props = f.memoizedProps;
+            const item = props?.item;
+            if (item?.type === role + '-message') {
+                for (const id of [item.latestMessageId, item.serverMessageId, item.messageId]) {
+                    if ((!allowed.size || allowed.has(id)) && times.get(id)?.role === role) return times.get(id);
+                }
             }
-        } catch (err) {
-            console.error("Failed to parse settings from DOM:", err);
-        }
-        return false;
-    }
-
-    function applySettingsToAllTimestamps() {
-        const timestamps = document.querySelectorAll('time.chatgpt-timestamp');
-        
-        if (!settings.enabled) {
-            timestamps.forEach(el => el.style.display = 'none');
-            return;
-        }
-
-        timestamps.forEach(timeEl => {
-            timeEl.style.display = 'block';
-            timeEl.style.color = settings.textColor;
-            timeEl.style.fontSize = settings.fontSize;
-            
-            const timestamp = parseInt(timeEl.getAttribute('data-timestamp'), 10);
-            if (!isNaN(timestamp)) {
-                timeEl.textContent = formatTimestamp(new Date(timestamp * 1000));
-            }
-        });
-    }
-
-    /** フォーマット済み日時文字列を取得する関数 */
-    function formatTimestamp(date) {
-        const pad = (n) => n.toString().padStart(2, '0');
-        const YYYY = date.getFullYear();
-        const M = date.getMonth() + 1;
-        const D = date.getDate();
-        const HH = pad(date.getHours());
-        const mm = pad(date.getMinutes());
-        const ss = pad(date.getSeconds());
-        
-        const formatStr = settings.dateFormat;
-        
-        return formatStr
-            .replace('YYYY', YYYY)
-            .replace('MM', pad(M))
-            .replace('DD', pad(D))
-            .replace('HH', HH)
-            .replace('mm', mm)
-            .replace('ss', ss);
-    }
-
-    // Cache for local timestamps assigned to newly generated messages
-    const localTimestampMap = new Map();
-    // Keep track of when we consider the page initially loaded to distinguish between existing vs new messages
-    let initialLoadComplete = false;
-
-    /** React Fiberツリーからメッセージの生成時刻（create_time）を抽出する関数 */
-    function extractTimeFromReactFiber(element) {
-        if (!element) return null;
-        
-        // Find the React Fiber node key
-        const reactKey = Object.keys(element).find(key => key.startsWith('__reactFiber$'));
-        if (!reactKey) return null;
-
-        let node = element[reactKey];
-        // Walk up the tree to find memoizedProps.messages
-        for (let i = 0; i < 20 && node; i++) {
-            const messages = node.memoizedProps?.messages;
-            if (messages && messages.length > 0 && messages[0].create_time) {
-                return messages[0].create_time;
-            }
-            node = node.return;
-        }
-        
-        return null;
-    }
-
-    /** メッセージ要素にタイムスタンプを付与する関数 */
-    function appendTimestampElement(messageElem, timestamp) {
-        if (messageElem.querySelector('time.chatgpt-timestamp')) return;
-
-        const date = new Date(timestamp * 1000);
-        const timeText = formatTimestamp(date);
-        const timeEl = document.createElement('time');
-        timeEl.className = 'chatgpt-timestamp w-full';
-        timeEl.dateTime = date.toISOString();
-        timeEl.title = date.toLocaleString();
-        timeEl.textContent = timeText;
-        timeEl.setAttribute('data-timestamp', timestamp);
-
-        const role = messageElem.getAttribute('data-message-author-role');
-        Object.assign(timeEl.style, {
-            fontStyle: 'italic',
-            opacity: '0.8',
-            fontSize: settings.fontSize,
-            color: settings.textColor,
-            display: settings.enabled ? 'block' : 'none',
-            textAlign: role === 'user' ? 'right' : 'left',
-            marginTop: '4px'
-        });
-        
-        messageElem.appendChild(timeEl);
-    }
-
-    const processedIds = new Set();
-    
-    // Process a specific message instantly
-    function processMessageTimestamp(messageId, element) {
-        if (element.querySelector('time.chatgpt-timestamp')) return;
-
-        let timestampToUse = null;
-
-        // Try getting local time if already assigned
-        if (localTimestampMap.has(messageId)) {
-            timestampToUse = localTimestampMap.get(messageId);
-        } else {
-            // Try extracting exact time from React Fiber
-            const reactTime = extractTimeFromReactFiber(element);
-            
-            if (reactTime) {
-                timestampToUse = reactTime;
-            } else if (initialLoadComplete) {
-                // If React doesn't have it yet and it's a new message (initial load is done), use local time immediately
-                timestampToUse = Date.now() / 1000;
-                localTimestampMap.set(messageId, timestampToUse);
-            }
-        }
-
-        if (timestampToUse !== null) {
-            appendTimestampElement(element, timestampToUse);
-            processedIds.add(messageId);
-        }
-    }
-
-    // Process all missing timestamps immediately
-    function processAllMissing() {
-        const elements = Array.from(document.querySelectorAll('[data-message-id]'));
-        
-        // Reverse array to process from bottom (newest) to top
-        elements.reverse().forEach(el => {
-            const id = el.getAttribute('data-message-id');
-            if (id && !el.querySelector('time.chatgpt-timestamp')) {
-                processMessageTimestamp(id, el);
-            }
-        });
-    }
-
-    // Debounce just the loop to avoid calling querySelectorAll too much on stream updates,
-    // but the debounce is very short (50ms) to ensure near instant rendering
-    let processAllTimer = null;
-    function triggerImmediateProcess() {
-        if (processAllTimer) clearTimeout(processAllTimer);
-        processAllTimer = setTimeout(() => {
-            processAllMissing();
-        }, 50);
-    }
-
-    // An observer that triggers processing anytime relevant nodes appear or update
-    const observer = new MutationObserver((mutations) => {
-        let shouldCheckMessages = false;
-        let shouldUpdateSettings = false;
-
-        for (const mut of mutations) {
-            // Check if settings attribute on body changed
-            if (mut.target === document.body && mut.attributeName === 'data-chatgpt-timestamp-settings') {
-                shouldUpdateSettings = true;
-            }
-
-            if (mut.type === 'childList' && mut.addedNodes.length > 0) {
-                shouldCheckMessages = true;
-            }
-            // For streaming updates (re-renders might remove the time element)
-            if (mut.type === 'characterData' || mut.type === 'childList') {
-                let targetNode = mut.target;
-                if (targetNode.nodeType !== 1) targetNode = targetNode.parentElement;
-                if (targetNode && targetNode.closest('[data-message-id]')) {
-                    shouldCheckMessages = true;
+            // Older layouts expose the actual message directly in component props.
+            if (Array.isArray(props?.messages)) {
+                for (const m of props.messages) {
+                    if (m?.author?.role === role && allowed.has(m.id)) remember(m);
                 }
             }
         }
-
-        if (shouldUpdateSettings) {
-            if (loadSettingsFromDOM()) {
-                applySettingsToAllTimestamps();
-            }
-        }
-
-        if (shouldCheckMessages) {
-            triggerImmediateProcess();
-        }
-    });
-
-    function startObserving() {
-        const main = document.querySelector('main') || document.body;
-        if (main && document.body) {
-            // Load initial settings
-            loadSettingsFromDOM();
-
-            // Observe body for settings changes
-            observer.observe(document.body, { attributes: true, attributeFilter: ['data-chatgpt-timestamp-settings'] });
-            // Observe main for message updates
-            observer.observe(main, { childList: true, subtree: true, characterData: true });
-            
-            // Set initial load flag after a delay to distinguish between existing vs new messages
-            setTimeout(() => {
-                initialLoadComplete = true;
-            }, 3000);
-            
-            triggerImmediateProcess();
-        } else {
-            setTimeout(startObserving, 1000);
-        }
+        const matches = ids.map(id => times.get(id)).filter(record => record?.role === role);
+        return matches.length === 1 ? matches[0] : null;
     }
-    startObserving();
 
-    // Monitor URL changes
-    let currentPath = location.pathname;
-    setInterval(() => {
-        if (location.pathname !== currentPath) {
-            currentPath = location.pathname;
-            processedIds.clear();
-            initialLoadComplete = false;
-            
-            setTimeout(() => {
-                initialLoadComplete = true;
-            }, 3000);
+    const defaults = {enabled: true, textColor: '#888888', fontSize: '0.875rem', dateFormat: 'YYYY/MM/DD HH:mm:ss'};
+    let settings = defaults;
+    function updateSettings() {
+        const value = document.body?.getAttribute('data-chatgpt-timestamp-settings');
+        if (!value) return;
+        try { settings = {...defaults, ...parse(value)}; } catch { return; }
+    }
 
-            triggerImmediateProcess();
+    function format(date) {
+        const pad = n => String(n).padStart(2, '0');
+        const parts = {YYYY: date.getFullYear(), MM: pad(date.getMonth()+1), DD: pad(date.getDate()),
+            HH: pad(date.getHours()), mm: pad(date.getMinutes()), ss: pad(date.getSeconds())};
+        return settings.dateFormat.replace(/YYYY|MM|DD|HH|mm|ss/g, key => parts[key]);
+    }
+
+    const rendered = new WeakMap();
+    function render() {
+        const stale = new Set(document.querySelectorAll('time.chatgpt-timestamp'));
+        const seen = new Set();
+        for (const element of document.querySelectorAll('[data-conversation-role], [data-message-id][data-message-author-role]')) {
+            const role = element.dataset.conversationRole || element.dataset.messageAuthorRole;
+            if (!roles.has(role)) continue;
+            const legacy = element.closest('[data-message-id][data-message-author-role]');
+            const host = legacy || element.parentElement;
+            if (!host || seen.has(host)) continue;
+            seen.add(host);
+            const unit = element.closest('[data-chatgpt-search-message-ids]') ||
+                         host.querySelector('[data-chatgpt-search-message-ids]');
+            const ids = legacy ? [legacy.dataset.messageId] :
+                (unit?.dataset.chatgptSearchMessageIds || '').split(/\s+/).filter(Boolean);
+            const record = resolveMessage(element, role, ids);
+            if (!record || !settings.enabled) continue;
+            const time = host.querySelector(':scope > time.chatgpt-timestamp') || document.createElement('time');
+            stale.delete(time);
+            const previous = rendered.get(time);
+            if (previous?.record === record && previous.settings === settings && previous.role === role) continue;
+            const date = new Date(record.seconds * 1000);
+            const label = format(date);
+            if (time.textContent !== label) time.textContent = label;
+            time.className = 'chatgpt-timestamp w-full';
+            time.dateTime = date.toISOString();
+            time.title = date.toLocaleString();
+            Object.assign(time.style, {display: 'block', color: settings.textColor, fontSize: settings.fontSize,
+                fontStyle: 'italic', opacity: '0.8', textAlign: role === 'user' ? 'right' : 'left', marginTop: '4px'});
+            if (!time.parentNode) host.appendChild(time);
+            rendered.set(time, {record, role, settings});
         }
-    }, 1000);
+        for (const time of stale) time.remove();
+    }
+
+    let scheduled = false;
+    function schedule() {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(() => { scheduled = false; render(); });
+    }
+    new MutationObserver(mutations => {
+        if (mutations.some(m => m.attributeName === 'data-chatgpt-timestamp-settings')) updateSettings();
+        schedule();
+    }).observe(document, {childList: true, subtree: true, attributes: true,
+        attributeFilter: ['data-chatgpt-timestamp-settings','data-conversation-role','data-message-id','data-chatgpt-search-message-ids']});
+    updateSettings();
+    schedule();
 })();
